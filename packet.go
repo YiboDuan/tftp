@@ -131,6 +131,7 @@ func (e *Err) Build(b []byte) error {
             if i != len(b) - 1 {
                 return UnexpectedDelimiterError(i)
             }
+            e.Msg = string(b[metadataSize:i])
             return nil
         }
     }

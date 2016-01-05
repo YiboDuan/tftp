@@ -3,10 +3,9 @@ package tftp
 import (
     "fmt"
     "net"
-    "bufio"
+    "io/ioutil"
     "time"
-    "os"
-    // "log"
+    "bytes"
 )
 
 type Transfer struct {
@@ -24,22 +23,13 @@ func handleRead(t *Transfer) error {
 func handleWrite(t *Transfer) error {
     t.conn.SetReadDeadline(time.Now().Add(7000 * time.Millisecond))
 
-    fo, err := os.Create(t.Filename)
-    if err != nil {
-        errPacket := Err{0, "failed to create file"}
-        t.conn.WriteTo(errPacket.Format(), t.addr)
-        return fmt.Errorf("failed to create file %v: %v", t.Filename, err)
-    }
-
-    defer fo.Close()
-    fmt.Println("Begin transfer of file:", t.Filename)
-    // prepare writer and buffer
-    w := bufio.NewWriter(fo)
     b := make([]byte, MAX_DATAGRAM_SIZE)
+    // write to buffer and then to a file later so it's not visible until completed
+    fileb := new(bytes.Buffer)
 
     currentBlock := uint16(0)
     dallying := false
-    filesize := 0
+    var filesize int
 
     for {
         // send acknowledgement
@@ -78,14 +68,20 @@ func handleWrite(t *Transfer) error {
         if data, ok := p.(*Data); ok {
             fmt.Printf("received block %d, %d bytes\n", data.BlockNumber, len(data.Data))
             if data.BlockNumber == currentBlock {
-                if _, err := w.Write(data.Data) ; err != nil {
+                if _, err := fileb.Write(data.Data) ; err != nil {
                     return fmt.Errorf("failed to write to file %v on block %d: %v", t.Filename, currentBlock, err)
                 }
                 // check for last packet
                 if currentBlock > 0 && len(data.Data) < DATA_FIELD_SIZE {
+                    // last data packet received, write to file and dallying for last ack packet
                     filesize = len(data.Data)
-                    fmt.Println("last data packet received, dallying for last ack packet")
                     dallying = true
+                    err := ioutil.WriteFile(t.Filename, fileb.Bytes(), 0666)
+                    if err != nil {
+                        errPacket := Err{0, "failed to write/create file"}
+                        t.conn.WriteTo(errPacket.Format(), t.addr)
+                        return fmt.Errorf("failed to write to file %v: %v", t.Filename, err)
+                    }
                 }
             } else {
                 if dallying {
@@ -102,11 +98,8 @@ func handleWrite(t *Transfer) error {
         }
     }
 
-    if err := w.Flush(); err != nil {
-        return fmt.Errorf("error while flushing writer: %v", err)
-    }
     filesize += (int(currentBlock)-2)*DATA_FIELD_SIZE
-    fmt.Printf("writing completed after %v data packets\n for a total of %v bytes", currentBlock-1, filesize)
+    fmt.Printf("writing completed after %v data packets for a total of %v bytes", currentBlock-1, filesize)
     return nil
 }
 
