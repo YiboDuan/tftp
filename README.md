@@ -13,7 +13,7 @@ To use, just import it and call Run with a port to listen to (i suggest 0 or the
 import "github.com/yiboduan/tftp"
 
 func main() {
-  tftp.Run(0)
+  tftp.Run("0")
 }
 ```
 
