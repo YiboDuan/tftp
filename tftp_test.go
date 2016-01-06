@@ -4,6 +4,8 @@ import (
     "testing"
     "strings"
     "bytes"
+    "net"
+    "time"
 )
 
 // packet.go tests
@@ -110,4 +112,92 @@ func TestErrBuild(t *testing.T) {
             }
         }
     }
+}
+
+func TestErrFormat(t *testing.T) {
+    var tests = []struct {
+        in Err
+        out []byte
+    }{
+        {Err{uint16(0),""}, []byte{0,5,0,0,0}},
+        {Err{uint16(3),"err!"}, []byte{0,5,0,3,101,114,114,33,0}},
+    }
+    for _, test := range tests {
+        b := test.in.Format()
+        if !bytes.Equal(b, test.out) {
+            t.Fatalf("Format(%v) => Err Packet %v, want %v", test.in, b, test.out)
+        }
+    }
+}
+
+// server.go tests
+// Change TEST_PORT to whatever port works
+// need to manually test by starting the server, dont have a way of signalling
+// shutdown right now, need to create channel
+var TEST_PORT string = "57295"
+func TestDataPacketLoss(t *testing.T) {
+    Run(TEST_PORT)
+    conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+    if err != nil {
+        t.Fatal(err)
+    }
+    defer conn.Close()
+    conn.SetReadDeadline(time.Now().Add(10000 * time.Millisecond))
+    ra, err := net.ResolveUDPAddr("udp", "127.0.0.1:" + TEST_PORT)
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    wrq := []byte{0,2,97,0,111,99,116,101,116,0}
+    if _, err = conn.(*net.UDPConn).WriteToUDP(wrq, ra); err != nil {
+        t.Fatal(err)
+    }
+
+    b := make([]byte, MAX_DATAGRAM_SIZE)
+    n, _, err := conn.ReadFrom(b)
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    p, err := Parse(b[:n])
+    if err != nil {
+        t.Fatal(err)
+    }
+    // check first ack packet
+    if ack, ok := p.(*Ack); ok && ack.BlockNumber == uint16(0){
+        // simulate lost packet by waiting for server timeout and getting a second ack packet
+        n, raddr, err := conn.ReadFrom(b)
+        if err != nil {
+            t.Fatal(err)
+        }
+        p, err := Parse(b[:n])
+        if err != nil {
+            t.Fatal(err)
+        }
+        // check second ack packet
+        if ack, ok := p.(*Ack); ok && ack.BlockNumber == uint16(0) {
+            // send first and final data packet
+            data := []byte{0,3,0,1,255,255}
+            if _, err = conn.WriteTo(data, raddr); err != nil {
+                t.Fatal(err)
+            }
+            n, _, err := conn.ReadFrom(b)
+            if err != nil {
+                t.Fatal(err)
+            }
+            p, err := Parse(b[:n])
+            if err != nil {
+                t.Fatal(err)
+            }
+            // check third ack packet
+            if ack, ok := p.(*Ack); !ok || ack.BlockNumber != uint16(1){
+                t.Fatal("Failed to receive third Ack Packet")
+            }
+        } else {
+            t.Fatal("Failed to receive second Ack Packet")
+        }
+    } else {
+        t.Fatal("Failed to receive Ack Packet")
+    }
+
 }

@@ -20,7 +20,8 @@ const (
     BLOCK_NUMBER_SIZE = 2
     ERROR_CODE_SIZE = 2
 
-    MAX_DATAGRAM_SIZE = DATA_FIELD_SIZE + TFTP_HEADER_SIZE + BLOCK_NUMBER_SIZE
+    META_DATA_SIZE = TFTP_HEADER_SIZE + BLOCK_NUMBER_SIZE
+    MAX_DATAGRAM_SIZE = DATA_FIELD_SIZE + META_DATA_SIZE
 )
 
 type Packet interface {
@@ -84,9 +85,8 @@ type Data struct {
 }
 
 func (d *Data) Build(b []byte) error {
-    metadataSize := TFTP_HEADER_SIZE + BLOCK_NUMBER_SIZE
-    d.BlockNumber = binary.BigEndian.Uint16(b[TFTP_HEADER_SIZE:metadataSize])
-    d.Data = b[metadataSize:]
+    d.BlockNumber = binary.BigEndian.Uint16(b[TFTP_HEADER_SIZE:META_DATA_SIZE])
+    d.Data = b[META_DATA_SIZE:]
     return nil
 }
 
@@ -105,7 +105,7 @@ type Ack struct {
 
 // Not used for Store-Only server, incomplete
 func (a *Ack) Build(b []byte) error {
-    panic("Using incomplete builder")
+    a.BlockNumber = binary.BigEndian.Uint16(b[TFTP_HEADER_SIZE:META_DATA_SIZE])
     return nil
 }
 
@@ -122,16 +122,15 @@ type Err struct {
 }
 
 func (e *Err) Build(b []byte) error {
-    metadataSize := TFTP_HEADER_SIZE + ERROR_CODE_SIZE
-    e.Code = binary.BigEndian.Uint16(b[TFTP_HEADER_SIZE:metadataSize])
+    e.Code = binary.BigEndian.Uint16(b[TFTP_HEADER_SIZE:META_DATA_SIZE])
 
     // detect errors and extract ErrMsg
-    for i := metadataSize; i < len(b); i++ {
+    for i := META_DATA_SIZE; i < len(b); i++ {
         if b[i] == 0 {
             if i != len(b) - 1 {
                 return UnexpectedDelimiterError(i)
             }
-            e.Msg = string(b[metadataSize:i])
+            e.Msg = string(b[META_DATA_SIZE:i])
             return nil
         }
     }

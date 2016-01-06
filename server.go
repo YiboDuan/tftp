@@ -50,7 +50,8 @@ func handleWrite(t *Transfer) error {
                     fmt.Println("dallying termination complete")
                     break
                 }
-                fmt.Printf("timed out while waiting for block %v, resending ACK", int(currentBlock))
+                fmt.Printf("timed out while waiting for block %v, resending ACK\n", int(currentBlock))
+                t.conn.SetReadDeadline(time.Now().Add(7000 * time.Millisecond))
                 currentBlock -= 1
                 continue
             } else {
@@ -99,7 +100,7 @@ func handleWrite(t *Transfer) error {
     }
 
     filesize += (int(currentBlock)-2)*DATA_FIELD_SIZE
-    fmt.Printf("writing completed after %v data packets for a total of %v bytes", currentBlock-1, filesize)
+    fmt.Printf("writing completed after %v data packets for a total of %v bytes\n", currentBlock-1, filesize)
     return nil
 }
 
