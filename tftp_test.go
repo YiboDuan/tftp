@@ -131,7 +131,7 @@ func TestErrFormat(t *testing.T) {
 }
 
 // server.go tests
-// Change TEST_PORT to whatever port works
+// THIS WILL FAIL IF YOU DONT CHANGE TEST_PORT TO THE SERVER PORT!!!!!!
 // need to manually test by starting the server, dont have a way of signalling
 // shutdown right now, need to create channel
 var TEST_PORT string = "57295"

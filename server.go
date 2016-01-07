@@ -15,14 +15,81 @@ type Transfer struct {
     Mode string
 }
 
+func (t *Transfer) sendError(e Err) {
+    t.conn.WriteTo(e.Format(), t.addr)
+}
+
 func handleRead(t *Transfer) error {
-    panic("read not implemented")
+    b := make([]byte, DATA_FIELD_SIZE)
+    currentBlock := uint16(0)
+
+    fileb, err := ioutil.ReadFile(t.Filename)
+    filesize := len(fileb)
+    if err != nil {
+        t.sendError(Err{uint16(1), "failed to open file"})
+        return err
+    }
+    filer := bytes.NewReader(fileb)
+
+    for {
+        currentBlock += 1
+        n, err := filer.Read(b)
+        if err != nil {
+            t.sendError(Err{uint16(0), "failed to read data into buffer"})
+            return err
+        }
+
+        data := &Data{currentBlock, b[:n]}
+        datab := data.Format()
+
+        write:  // label for resending data after lost ack packet
+        if _, err := t.conn.WriteTo(datab, t.addr); err != nil {
+            t.sendError(Err{uint16(0), "failed to write to connection"})
+            return fmt.Errorf("could not write to: %v, %v", t.addr, err)
+        }
+
+        read:
+        // wait for acknowledgement
+        n, _, err = t.conn.ReadFrom(b)
+        if err != nil {
+            if e, ok := err.(net.Error); ok && e.Timeout() {
+                fmt.Printf("timed out while waiting for block %v Ack, resending data\n", int(currentBlock))
+                t.conn.SetReadDeadline(time.Now().Add(7000 * time.Millisecond))
+                goto write
+            } else {
+                t.sendError(Err{uint16(0), err.Error()})
+                return fmt.Errorf("error while reading from packet conn: %v", err)
+            }
+        }
+
+        // parse ack packet
+        p, err := Parse(b[:n])
+        if err != nil {
+            t.sendError(Err{uint16(4), err.Error()})
+            return err
+        }
+
+        // check that packet is ack and is correct
+        if ack, ok := p.(*Ack); ok {
+            if ack.BlockNumber != currentBlock {
+                // duplicate ack packet!!! read another one
+                goto read
+            }
+        } else {
+            t.sendError(Err{(4), "packet received was not the expected Ack"})
+        }
+
+        // acknowledgement found, if data field is less than 512, done
+        if len(data.Data) < DATA_FIELD_SIZE {
+            break
+        }
+
+    }
+    fmt.Printf("reading completed after %v data packets for a total of %v bytes\n", currentBlock, filesize)
     return nil
 }
 
 func handleWrite(t *Transfer) error {
-    t.conn.SetReadDeadline(time.Now().Add(7000 * time.Millisecond))
-
     b := make([]byte, MAX_DATAGRAM_SIZE)
     // write to buffer and then to a file later so it's not visible until completed
     fileb := new(bytes.Buffer)
@@ -35,12 +102,13 @@ func handleWrite(t *Transfer) error {
         // send acknowledgement
         ack := Ack{currentBlock}
         if _, err := t.conn.WriteTo(ack.Format(), t.addr); err != nil {
+            t.sendError(Err{uint16(0), "failed to send Ack"})
             return fmt.Errorf("could not write to: %v, %v", t.addr, err)
         }
 
         currentBlock += 1
 
-        read:
+        read:   // label to read but not send another ack packet
         // read data packet
         n, _, err := t.conn.ReadFrom(b)
         if err != nil {
@@ -55,6 +123,7 @@ func handleWrite(t *Transfer) error {
                 currentBlock -= 1
                 continue
             } else {
+                t.sendError(Err{uint16(0), err.Error()})
                 return fmt.Errorf("error while reading from packet conn: %v", err)
             }
         }
@@ -62,12 +131,14 @@ func handleWrite(t *Transfer) error {
         // parse data packet
         p, err := Parse(b[:n])
         if err != nil {
+            t.sendError(Err{uint16(4), err.Error()})
             return err
         }
 
         // write data
         if data, ok := p.(*Data); ok {
             fmt.Printf("received block %d, %d bytes\n", data.BlockNumber, len(data.Data))
+            // confirming expected BlockNumber
             if data.BlockNumber == currentBlock {
                 if _, err := fileb.Write(data.Data) ; err != nil {
                     return fmt.Errorf("failed to write to file %v on block %d: %v", t.Filename, currentBlock, err)
@@ -79,8 +150,7 @@ func handleWrite(t *Transfer) error {
                     dallying = true
                     err := ioutil.WriteFile(t.Filename, fileb.Bytes(), 0666)
                     if err != nil {
-                        errPacket := Err{0, "failed to write/create file"}
-                        t.conn.WriteTo(errPacket.Format(), t.addr)
+                        t.sendError(Err{0, "failed to write/create file"})
                         return fmt.Errorf("failed to write to file %v: %v", t.Filename, err)
                     }
                 }
@@ -112,6 +182,7 @@ func handleRequest(r *Request, raddr net.Addr) {
         // send Err Packet
         panic(err)
     }
+    conn.SetReadDeadline(time.Now().Add(7000 * time.Millisecond))
     t := &Transfer{conn, raddr, r.Filename, r.Mode}
     switch r.Opcode {
         case RRQ_CODE:

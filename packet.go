@@ -29,13 +29,6 @@ type Packet interface {
     Format() []byte
 }
 
-// Write/Read Request packet
-type Request struct {
-    Opcode uint16
-    Filename string
-    Mode string // not used for now, assume octet
-}
-
 type UnexpectedDelimiterError int
 
 func (u UnexpectedDelimiterError) Error() string {
@@ -46,6 +39,13 @@ type DelimiterNotFoundError int
 
 func (d DelimiterNotFoundError) Error() string{
     return fmt.Sprintf("reached end of packet of size %v, expected delimiter", int(d))
+}
+
+// Write/Read Request packet
+type Request struct {
+    Opcode uint16
+    Filename string
+    Mode string
 }
 
 func (r *Request) Build(b []byte) error {
@@ -68,7 +68,6 @@ func (r *Request) Build(b []byte) error {
     return DelimiterNotFoundError(len(b))
 }
 
-// Not used for Store-Only server, not tested
 func (r *Request) Format() []byte {
     b := new(bytes.Buffer)
     binary.Write(b, binary.BigEndian, r.Opcode)
@@ -79,6 +78,7 @@ func (r *Request) Format() []byte {
     return b.Bytes()
 }
 
+// Data Packet
 type Data struct {
     BlockNumber uint16
     Data []byte
@@ -90,7 +90,6 @@ func (d *Data) Build(b []byte) error {
     return nil
 }
 
-// Not used for Store-Only server, not tested
 func (d *Data) Format() []byte {
     b := new(bytes.Buffer)
     binary.Write(b, binary.BigEndian, DATA_CODE)
@@ -99,11 +98,11 @@ func (d *Data) Format() []byte {
     return b.Bytes()
 }
 
+// Acknowledgement Packet
 type Ack struct {
     BlockNumber uint16
 }
 
-// Not used for Store-Only server, incomplete
 func (a *Ack) Build(b []byte) error {
     a.BlockNumber = binary.BigEndian.Uint16(b[TFTP_HEADER_SIZE:META_DATA_SIZE])
     return nil
@@ -116,6 +115,7 @@ func (a *Ack) Format() []byte {
     return b.Bytes()
 }
 
+// Error Packet
 type Err struct {
     Code uint16
     Msg string
@@ -146,6 +146,7 @@ func (e *Err) Format() []byte {
     return b.Bytes()
 }
 
+// Detect packet and convert byte slice into struct that implements packet interface
 func Parse(b []byte) (Packet, error) {
     var p Packet
     opcode := binary.BigEndian.Uint16(b[:TFTP_HEADER_SIZE])
