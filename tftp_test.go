@@ -136,7 +136,6 @@ func TestErrFormat(t *testing.T) {
 // shutdown right now, need to create channel
 var TEST_PORT string = "57295"
 func TestDataPacketLoss(t *testing.T) {
-    Run(TEST_PORT)
     conn, err := net.ListenPacket("udp", "127.0.0.1:0")
     if err != nil {
         t.Fatal(err)

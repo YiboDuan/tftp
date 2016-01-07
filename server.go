@@ -194,6 +194,7 @@ func handleRequest(r *Request, raddr net.Addr) {
         default:
             panic("only request packets should be in here!")
     }
+    panic(err)
 }
 
 func Run(port string) {
