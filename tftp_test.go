@@ -132,9 +132,8 @@ func TestErrFormat(t *testing.T) {
 }
 
 // server.go tests
-var TEST_PORT string = "57295"
-func TestDataPacketLoss(t *testing.T) {
-    s := NewServer(TEST_PORT)
+func TestWriteDataPacketLoss(t *testing.T) {
+    s := NewServer("0")
     go s.Run()
     conn, err := net.ListenPacket("udp", "127.0.0.1:0")
     if err != nil {
@@ -143,13 +142,13 @@ func TestDataPacketLoss(t *testing.T) {
     defer conn.Close()
 
     conn.SetReadDeadline(time.Now().Add(10000 * time.Millisecond))
-    ra, err := net.ResolveUDPAddr("udp", "127.0.0.1:" + TEST_PORT)
+    <-s.Setupdone   // wait until server has been set up
+    ra, err := net.ResolveUDPAddr("udp", s.LAddr.String())
     if err != nil {
         t.Fatal(err)
     }
     // send write request
     wrq := []byte{0,2,97,0,111,99,116,101,116,0}
-    <-s.Setupdone   // wait until server has been set up before sending
     if _, err = conn.(*net.UDPConn).WriteToUDP(wrq, ra); err != nil {
         t.Fatal(err)
     }
@@ -202,4 +201,66 @@ func TestDataPacketLoss(t *testing.T) {
     }
     s.Stop()
     os.Remove("a")
+}
+
+func TestReadAckPacketLoss(t *testing.T) {
+    s := NewServer("0")
+    go s.Run()
+
+    conn, err := net.ListenPacket("udp", "127.0.0.1:0")
+    if err != nil {
+        t.Fatal(err)
+    }
+    defer conn.Close()
+
+    conn.SetReadDeadline(time.Now().Add(10000 * time.Millisecond))
+    <-s.Setupdone   // wait until server has been set up
+    ra, err := net.ResolveUDPAddr("udp", s.LAddr.String())
+    if err != nil {
+        t.Fatal(err)
+    }
+    // send write request to read THIS file: tftp_test.go
+    rrq := []byte{0,1,116,102,116,112,95,116,101,115,116,46,103,111,0,111,99,116,101,116,0}
+    if _, err = conn.(*net.UDPConn).WriteToUDP(rrq, ra); err != nil {
+        t.Fatal(err)
+    }
+
+    b := make([]byte, MAX_DATAGRAM_SIZE)
+    pcount := uint16(0)
+
+    tested := false
+
+    for {
+        pcount += 1
+
+        read:
+        n, raddr, err := conn.ReadFrom(b)
+        if err != nil {
+            t.Fatal(err)
+        }
+
+        p, err := Parse(b[:n])
+        if err != nil {
+            t.Fatal(err)
+        }
+        // check data packet
+        data, ok := p.(*Data)
+        if !ok || data.BlockNumber != pcount{
+            t.Fatal("did not receive correct packet")
+        }
+
+        // simulate lost ack packet by waiting for the data packet again
+        if !tested {
+            tested = true
+            goto read
+        }
+        ack := &Ack{pcount}
+        if _, err := conn.WriteTo(ack.Format(), raddr); err != nil {
+            t.Fatal(err)
+        }
+
+        if len(data.Data) < DATA_FIELD_SIZE {
+            break
+        }
+    }
 }

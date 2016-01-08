@@ -202,16 +202,19 @@ func handleRequest(r *Request, raddr net.Addr) {
 type Server struct {
     port string
     shutdown bool
+    LAddr net.Addr
     Setupdone chan int
 }
 
 func (s *Server) Run() {
     conn, err := net.ListenPacket("udp", "127.0.0.1:" + s.port)
-    s.Setupdone <- 1  // signal setup done, used as a semaphore
-    fmt.Println("simple tftp server running, listening to port:", conn.LocalAddr())
     if err != nil {
         panic(err)
     }
+    s.LAddr = conn.LocalAddr()
+    s.Setupdone <- 1  // signal setup done, used as a semaphore
+    fmt.Println("simple tftp server running, listening to port:", s.LAddr)
+
     defer conn.Close()
 
     b := make([]byte, MAX_DATAGRAM_SIZE)
@@ -248,9 +251,9 @@ func (s *Server) Stop() {
 
 func NewServer(port string) *Server{
     s := &Server{
-        port,
-        false,
-        make(chan int, 1),
+        port: port,
+        shutdown: false,
+        Setupdone: make(chan int, 1),
     }
     return s
 }
