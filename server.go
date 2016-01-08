@@ -194,11 +194,20 @@ func handleRequest(r *Request, raddr net.Addr) {
         default:
             panic("only request packets should be in here!")
     }
-    panic(err)
+    if err != nil {
+        panic(err)
+    }
 }
 
-func Run(port string) {
-    conn, err := net.ListenPacket("udp", "127.0.0.1:" + port)
+type Server struct {
+    port string
+    shutdown bool
+    Setupdone chan int
+}
+
+func (s *Server) Run() {
+    conn, err := net.ListenPacket("udp", "127.0.0.1:" + s.port)
+    s.Setupdone <- 1  // signal setup done, used as a semaphore
     fmt.Println("simple tftp server running, listening to port:", conn.LocalAddr())
     if err != nil {
         panic(err)
@@ -208,7 +217,16 @@ func Run(port string) {
     b := make([]byte, MAX_DATAGRAM_SIZE)
 
     for {
+        conn.SetReadDeadline(time.Now().Add(7000 * time.Millisecond))
         n, raddr, err := conn.ReadFrom(b)
+
+        if err != nil {
+            // check for shutdown flag
+            if s.shutdown {
+                break
+            }
+            continue
+        }
 
         fmt.Println("received", n, "packets from", raddr)
         p, err := Parse(b[:n])
@@ -222,4 +240,17 @@ func Run(port string) {
             fmt.Printf("received a non-request packet from %v\n", raddr)
         }
     }
+}
+
+func (s *Server) Stop() {
+    s.shutdown = true
+}
+
+func NewServer(port string) *Server{
+    s := &Server{
+        port,
+        false,
+        make(chan int, 1),
+    }
+    return s
 }

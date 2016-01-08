@@ -7,13 +7,21 @@ Install by using:
 go get https://github.com/YiboDuan/tftp
 ```
 
-To use, just import it and call Run with a port to listen to (i suggest 0 or the usual 69 if it is available):
+To use, just import it, call NewServer with a port to listen to 
+(i suggest 0 or the usual 69 if it is available) then Run
 
 ```
 import "github.com/yiboduan/tftp"
 
 func main() {
-  tftp.Run("0")
+  s := tftp.NewServer("0")
+  s.Run()
 }
 ```
 
+To stop the server, just call Stop() on the server
+and it will terminate the server gracefully
+
+```
+s.Stop()
+```

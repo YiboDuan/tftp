@@ -6,6 +6,7 @@ import (
     "bytes"
     "net"
     "time"
+    "os"
 )
 
 // packet.go tests
@@ -131,23 +132,24 @@ func TestErrFormat(t *testing.T) {
 }
 
 // server.go tests
-// THIS WILL FAIL IF YOU DONT CHANGE TEST_PORT TO THE SERVER PORT!!!!!!
-// need to manually test by starting the server, dont have a way of signalling
-// shutdown right now, need to create channel
 var TEST_PORT string = "57295"
 func TestDataPacketLoss(t *testing.T) {
+    s := NewServer(TEST_PORT)
+    go s.Run()
     conn, err := net.ListenPacket("udp", "127.0.0.1:0")
     if err != nil {
         t.Fatal(err)
     }
     defer conn.Close()
+
     conn.SetReadDeadline(time.Now().Add(10000 * time.Millisecond))
     ra, err := net.ResolveUDPAddr("udp", "127.0.0.1:" + TEST_PORT)
     if err != nil {
         t.Fatal(err)
     }
-
+    // send write request
     wrq := []byte{0,2,97,0,111,99,116,101,116,0}
+    <-s.Setupdone   // wait until server has been set up before sending
     if _, err = conn.(*net.UDPConn).WriteToUDP(wrq, ra); err != nil {
         t.Fatal(err)
     }
@@ -157,7 +159,7 @@ func TestDataPacketLoss(t *testing.T) {
     if err != nil {
         t.Fatal(err)
     }
-
+    // parse ack
     p, err := Parse(b[:n])
     if err != nil {
         t.Fatal(err)
@@ -198,5 +200,6 @@ func TestDataPacketLoss(t *testing.T) {
     } else {
         t.Fatal("Failed to receive Ack Packet")
     }
-
+    s.Stop()
+    os.Remove("a")
 }
